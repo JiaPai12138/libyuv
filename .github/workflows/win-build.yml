@@ -1,0 +1,118 @@
+name: libyuv-win-build
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 0 * * 1'
+  release:
+    types: [published, edited]
+  workflow_dispatch:
+
+jobs:
+  build:
+    timeout-minutes: 90
+    runs-on: windows-latest
+    env:
+      BUILD_TYPE: 'Release'
+      DEPOT_PATH: C:\depot_tools
+
+    steps:
+    - name: Generate date tag
+      if: github.event_name != 'release'
+      id: date_tag
+      shell: pwsh
+      run: |
+        $tag = (Get-Date).ToString("yyyyMMdd")
+        echo "REL_TAG=$tag" >> $env:GITHUB_ENV
+        echo "NAME_TAG=Release $tag" >> $env:GITHUB_ENV
+
+    - name: Generate date tag
+      if: github.event_name == 'release'
+      id: rel_tag
+      shell: pwsh
+      run: |
+        $tag = "${{ github.event.release.tag_name }}"
+        echo "REL_TAG=$tag" >> $env:GITHUB_ENV
+        $name = "${{ github.event.release.name }}"
+        echo "NAME_TAG=$name" >> $env:GITHUB_ENV
+
+    - name: Get CPU core count
+      id: cpu
+      shell: pwsh
+      run: |
+        $cores = (Get-CimInstance -ClassName Win32_Processor).NumberOfLogicalProcessors
+        echo "cores=$cores" >> $env:GITHUB_OUTPUT
+        echo "CORES=$cores" >> $env:GITHUB_ENV
+
+    - name: Checkout Repo
+      uses: actions/checkout@v5
+
+    - name: Install sccache
+      run: choco install sccache -y
+
+    - name: Check Ninja version
+      run: ninja --version
+
+    - name: Check clang-cl
+      run: where.exe clang-cl
+
+    - name: Build libyuv with GN x64
+      shell: cmd
+      run: |
+        call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
+        cmake -B build -G Ninja ^
+        -DCMAKE_C_COMPILER="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe" ^
+        -DCMAKE_CXX_COMPILER="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\x64\bin\clang-cl.exe" ^
+        -DCPACK_SOURCE_7ZL=OFF ^
+        -DCPACK_SOURCE_ZIP=OFF ^
+        -DCMAKE_BUILD_TYPE=Release ^
+        -DCMAKE_C_FLAGS="/O2 /fp:fast /arch:AVX2 -flto=full" ^
+        -DCMAKE_CXX_FLAGS="/O2 /fp:fast /arch:AVX2 -flto=full"
+        cmake --build build --config Release --verbose -j ${{ env.CORES }}
+
+    - name: Package build results
+      shell: pwsh
+      run: |
+        7z a -t7z -mmt -mx=3 libyuv-win64.7z build
+
+    - name: Build libyuv with GN x86
+      shell: cmd
+      run: |
+        cmake --build build --target clean
+        call "%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars32.bat"
+        cmake -B build -G Ninja ^
+        -DCMAKE_C_COMPILER="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\bin\clang-cl.exe" ^
+        -DCMAKE_CXX_COMPILER="%ProgramFiles%\Microsoft Visual Studio\2022\Enterprise\VC\Tools\Llvm\bin\clang-cl.exe" ^
+        -DCPACK_SOURCE_7ZL=OFF ^
+        -DCPACK_SOURCE_ZIP=OFF ^
+        -DCMAKE_BUILD_TYPE=Release ^
+        -DCMAKE_C_FLAGS="/O2 /fp:fast /arch:AVX2 -flto=full" ^
+        -DCMAKE_CXX_FLAGS="/O2 /fp:fast /arch:AVX2 -flto=full"
+        cmake --build build --config Release --verbose -j ${{ env.CORES }}
+
+    - name: Package build results
+      shell: pwsh
+      run: |
+        7z a -t7z -mmt -mx=3 libyuv-win32.7z build
+
+    - name: Upload build artifact
+      uses: actions/upload-artifact@v5
+      with:
+        name: libyuv-win
+        path: |
+          libyuv-win32.7z
+          libyuv-win64.7z
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      if: github.event_name == 'schedule' || github.event_name == 'release'
+      with:
+        tag_name: ${{ env.REL_TAG }}
+        name: ${{ env.NAME_TAG }}
+        files: |
+          libyuv-win32.7z
+          libyuv-win64.7z
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
