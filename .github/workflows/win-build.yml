@@ -97,6 +97,11 @@ jobs:
       run: |
         7z a -t7z -mmt -mx=3 libyuv-win32.7z build
 
+    - name: Package header files
+      shell: pwsh
+      run: |
+        7z a -t7z -mmt -mx=3 header.7z include
+
     - name: Upload build artifact
       uses: actions/upload-artifact@v5
       with:
@@ -104,6 +109,7 @@ jobs:
         path: |
           libyuv-win32.7z
           libyuv-win64.7z
+          header.7z
 
     - name: Release
       uses: softprops/action-gh-release@v2
@@ -114,5 +120,6 @@ jobs:
         files: |
           libyuv-win32.7z
           libyuv-win64.7z
+          header.7z
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
