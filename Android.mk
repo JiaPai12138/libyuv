@@ -30,12 +30,14 @@ LOCAL_SRC_FILES := \
     source/rotate_gcc.cc        \
     source/rotate_neon.cc       \
     source/rotate_neon64.cc     \
+    source/rotate_rvv.cc        \
     source/rotate_win.cc        \
     source/row_any.cc           \
     source/row_common.cc        \
     source/row_gcc.cc           \
     source/row_neon.cc          \
     source/row_neon64.cc        \
+    source/row_rvv.cc           \
     source/row_win.cc           \
     source/scale.cc             \
     source/scale_any.cc         \
@@ -45,6 +47,7 @@ LOCAL_SRC_FILES := \
     source/scale_neon.cc        \
     source/scale_neon64.cc      \
     source/scale_rgb.cc         \
+    source/scale_rvv.cc         \
     source/scale_uv.cc          \
     source/scale_win.cc         \
     source/video_common.cc

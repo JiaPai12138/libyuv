@@ -61,19 +61,6 @@ extern "C" {
     _dst += _stride2;                                   \
   }
 
-void TransposeUVWx16_C(const uint8_t* src,
-                       int src_stride,
-                       uint8_t* dst_a,
-                       int dst_stride_a,
-                       uint8_t* dst_b,
-                       int dst_stride_b,
-                       int width) {
-  TransposeUVWx8_C(src, src_stride, dst_a, dst_stride_a, dst_b, dst_stride_b,
-                   width);
-  TransposeUVWx8_C((src + 8 * src_stride), src_stride, (dst_a + 8),
-                   dst_stride_a, (dst_b + 8), dst_stride_b, width);
-}
-
 void TransposeWx16_LSX(const uint8_t* src,
                        int src_stride,
                        uint8_t* dst,
@@ -222,6 +209,36 @@ void TransposeUVWx16_LSX(const uint8_t* src,
     LSX_ST_2(dst0, dst2, dst_a, dst_stride_a, dst_stride_a2);
     LSX_ST_2(dst1, dst3, dst_b, dst_stride_b, dst_stride_b2);
     src += 16;
+  }
+}
+
+void Transpose4x4_32_LSX(const uint8_t* src,
+                         int src_stride,
+                         uint8_t* dst,
+                         int dst_stride,
+                         int width) {
+  int x;
+  int len = width / 4;
+  ptrdiff_t src_stride2 = src_stride * 2;
+  ptrdiff_t src_stride3 = src_stride + src_stride2;
+  ptrdiff_t src_stride4 = src_stride * 4;
+  ptrdiff_t dst_stride2 = dst_stride * 2;
+  ptrdiff_t dst_stride3 = dst_stride + dst_stride2;
+  __m128i src0, src1, src2, src3;
+  __m128i dst0, dst1, dst2, dst3;
+
+  for (x = 0; x < len; x++) {
+    src0 = __lsx_vld(src, 0);
+    src1 = __lsx_vldx(src, src_stride);
+    src2 = __lsx_vldx(src, src_stride2);
+    src3 = __lsx_vldx(src, src_stride3);
+    LSX_TRANSPOSE4x4_W(src0, src1, src2, src3, dst0, dst1, dst2, dst3);
+    __lsx_vst(dst0, dst, 0);
+    __lsx_vstx(dst1, dst, dst_stride);
+    __lsx_vstx(dst2, dst, dst_stride2);
+    __lsx_vstx(dst3, dst, dst_stride3);
+    dst += 16;
+    src += src_stride4;
   }
 }
 

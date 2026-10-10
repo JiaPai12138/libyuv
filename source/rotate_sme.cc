@@ -11,12 +11,17 @@
 #include "libyuv/rotate_row.h"
 #include "libyuv/row.h"
 
-#include "libyuv/basic_types.h"
-
 #ifdef __cplusplus
 namespace libyuv {
 extern "C" {
 #endif
+
+// Note: every register written by an inline asm block (vector, general
+// purpose, mask/predicate, "cc" for flags and "memory" for stores) must be
+// listed in its clobber list, even when the ABI treats it as caller-saved.
+// With LTO/LTCG the compiler may keep values live in any register across the
+// asm statement, and other OS ABIs (e.g. Windows) differ in which registers
+// are callee-saved. List "memory" first, then "cc", then registers.
 
 #if !defined(LIBYUV_DISABLE_SME) && defined(CLANG_HAS_SME) && \
     defined(__aarch64__)
@@ -162,6 +167,73 @@ __arm_locally_streaming __arm_new("za") void TransposeUVWxH_SME(
     dst_a += 2 * vl;
     dst_b += 2 * vl;
     height -= 2 * vl;
+  } while (height > 0);
+}
+
+__arm_locally_streaming __arm_new("za") void TransposeWxH_32_SME(
+    const uint8_t* src,
+    int src_stride,
+    uint8_t* dst,
+    int dst_stride,
+    int width,
+    int height) {
+  int vl;
+  asm("cntw %x0" : "=r"(vl));
+
+  do {
+    const uint8_t* src2 = src;
+    uint8_t* dst2 = dst;
+
+    // Process up to VL 32-bit rows per iteration of the outer loop.
+    int block_height = height > vl ? vl : height;
+
+    int width2 = width;
+    do {
+      const uint8_t* src3 = src2;
+
+      // Process up to VL 32-bit columns per iteration of the inner loop.
+      int block_width = width2 > vl ? vl : width2;
+
+      asm volatile(
+          "mov     w12, #0                              \n"
+
+          // Create a predicate to handle loading partial rows.
+          "whilelt p0.s, wzr, %w[block_width]           \n"
+
+          // Load H <= VL rows into ZA0.S.
+          "1:                                           \n"
+          "ld1w    {za0h.s[w12, 0]}, p0/z, [%[src3]]    \n"
+          "add     %[src3], %[src3], %[src_stride]      \n"
+          "add     w12, w12, #1                         \n"
+          "cmp     w12, %w[block_height]                \n"
+          "b.ne    1b                                   \n"
+
+          // Create a predicate to handle storing partial columns.
+          "whilelt p0.s, wzr, %w[block_height]          \n"
+          "mov     w12, #0                              \n"
+
+          // Store W <= VL columns from ZA0.S.
+          "2:                                           \n"
+          "st1w    {za0v.s[w12, 0]}, p0, [%[dst2]]      \n"
+          "add     %[dst2], %[dst2], %[dst_stride]      \n"
+          "add     w12, w12, #1                         \n"
+          "cmp     w12, %w[block_width]                 \n"
+          "b.ne    2b                                   \n"
+          : [src3] "+r"(src3),                        // %[src3]
+            [dst2] "+r"(dst2)                         // %[dst2]
+          : [src_stride] "r"((ptrdiff_t)src_stride),  // %[src_stride]
+            [dst_stride] "r"((ptrdiff_t)dst_stride),  // %[dst_stride]
+            [block_width] "r"(block_width),           // %[block_width]
+            [block_height] "r"(block_height)          // %[block_height]
+          : "cc", "memory", "p0", "w12", "za");
+
+      src2 += vl * 4;
+      width2 -= vl;
+    } while (width2 > 0);
+
+    src += (ptrdiff_t)vl * src_stride;
+    dst += vl * 4;
+    height -= vl;
   } while (height > 0);
 }
 
